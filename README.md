@@ -66,7 +66,7 @@ Preprocessing and segmentation steps applied:
 5. Keep overlap configurable through:
 
 ```math
-\text{step_seconds} = \text{window_seconds} \cdot (1 - \text{overlap_ratio})
+\text{step\_seconds} = \text{window\_seconds} \cdot (1 - \text{overlap\_ratio})
 ```
 
 ## Feature Engineering Per Window
@@ -220,7 +220,7 @@ Because overtaking can be confused with other transient behaviors (for example s
 Steering activity is modeled as:
 
 ```math
-\text{steering_activity}=0.6\cdot \text{mean_abs_steering}+0.4\cdot \text{steering_range}
+\text{steering\_activity}=0.6\cdot \text{mean\_abs\_steering}+0.4\cdot \text{steering\_range}
 ```
 
 Overtaking confidence is computed with the same Mamdani + centroid framework:
@@ -293,13 +293,13 @@ Therefore, defuzzification in this implementation is the centroid-based mapping 
 A second crisping stage is applied after window-level inference:
 
 ```math
-\text{vote_ratio}(t)=\frac{\text{positive windows covering } t}{\text{total windows covering } t}
+\text{vote\_ratio}(t)=\frac{\text{positive windows covering } t}{\text{total windows covering } t}
 ```
 
 Then:
 
 ```math
-\hat{y}(t)=\mathbb{1}[\text{vote_ratio}(t)\ge \tau]
+\hat{y}(t)=\mathbb{1}[\text{vote\_ratio}(t)\ge \tau]
 ```
 
 This resolves overlap conflicts and converts multiple window outputs into a sample-wise final decision.
