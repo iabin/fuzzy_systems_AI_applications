@@ -31,9 +31,9 @@ Main implementation files:
 
 Generated outputs:
 
-- `stopping_megagraph.png`
-- `overtaking_megagraph.png`
-- `u_turnings_megagraph.png`
+- `images/stopping_megagraph.png`
+- `images/overtaking_megagraph.png`
+- `images/u_turnings_megagraph.png`
 - `metrics_results.txt`
 
 ## Data Preparation and Temporal Segmentation
@@ -65,9 +65,9 @@ Preprocessing and segmentation steps applied:
 4. Discard windows with less than `min_samples`.
 5. Keep overlap configurable through:
 
-$$
+```math
 \text{step_seconds} = \text{window_seconds} \cdot (1 - \text{overlap_ratio})
-$$
+```
 
 ## Feature Engineering Per Window
 For each temporal window, the system computes:
@@ -90,42 +90,42 @@ The implementation uses explicit membership mappings to convert crisp feature va
 
 **1) Positive saturation membership**
 
-$$
+```math
 \mu_{+}(x; t)=
 \begin{cases}
 0 & x \le 0 \\
 \min\left(\frac{x}{t},1\right) & x>0
 \end{cases}
-$$
+```
 
 Used for evidence that should increase with larger positive values (for example acceleration, speed rise, brake intensity).
 
 **2) Negative saturation membership**
 
-$$
+```math
 \mu_{-}(x; t)=
 \begin{cases}
 0 & x \ge 0 \\
 \min\left(\frac{|x|}{t},1\right) & x<0
 \end{cases}
-$$
+```
 
 Used for deceleration evidence (negative acceleration).
 
 **3) Linear-below membership**
 
-$$
+```math
 \mu_{\text{below}}(x; m)=\max\left(0,\min\left(\frac{m-x}{m},1\right)\right)
-$$
+```
 
 Used to represent linguistic concepts such as *low speed* or *low gas*.
 
 **4) Mid-range triangular membership**
 Given interval $[l,h]$, center $c=(l+h)/2$ and half-width $w=(h-l)/2$:
 
-$$
+```math
 \mu_{\text{mid}}(x;l,h)=\max\left(0, 1-\frac{|x-c|}{w}\right)
-$$
+```
 
 Used for values expected to be moderate (for example steering activity in overtaking).
 
@@ -164,27 +164,27 @@ In the final implementation, each rule contributes an activation level and a con
 
 Let $\alpha_r$ be the firing strength of rule $r$ and $\mu_{C_r}(y)$ the consequent fuzzy set for confidence variable $y\in[0,1]$. The implied output of each rule is:
 
-$$
+```math
 \mu_r^{\text{out}}(y)=\min\left(\alpha_r,\mu_{C_r}(y)\right)
-$$
+```
 
 Then all rules are aggregated by:
 
-$$
+```math
 \mu_{\text{agg}}(y)=\max_r\mu_r^{\text{out}}(y)
-$$
+```
 
 The crisp stopping confidence is obtained by centroid defuzzification:
 
-$$
+```math
 S_{\text{stop}}=\frac{\int_0^1 y\,\mu_{\text{agg}}(y)\,dy}{\int_0^1 \mu_{\text{agg}}(y)\,dy}
-$$
+```
 
 The final decision is:
 
-$$
+```math
 \hat{y}_{\text{stop}}=\mathbb{1}[S_{\text{stop}}\ge \theta_{\text{stop}}], \quad \theta_{\text{stop}}=0.70
-$$
+```
 
 ### Rule base: Overtaking
 Overtaking uses these antecedents:
@@ -219,21 +219,21 @@ Because overtaking can be confused with other transient behaviors (for example s
 
 Steering activity is modeled as:
 
-$$
+```math
 \text{steering_activity}=0.6\cdot \text{mean_abs_steering}+0.4\cdot \text{steering_range}
-$$
+```
 
 Overtaking confidence is computed with the same Mamdani + centroid framework:
 
-$$
+```math
 S_{\text{over}}=\frac{\int_0^1 y\,\mu_{\text{agg,over}}(y)\,dy}{\int_0^1 \mu_{\text{agg,over}}(y)\,dy}
-$$
+```
 
 with binary decision:
 
-$$
+```math
 \hat{y}_{\text{over}}=\mathbb{1}[S_{\text{over}}\ge \theta_{\text{over}}], \quad \theta_{\text{over}}=0.67
-$$
+```
 
 ### Rule base: U-Turnings
 U-turning evidence is dominated by steering geometry:
@@ -256,15 +256,15 @@ This subsystem is intentionally compact and interpretable: it favors transparent
 
 U-turning confidence is obtained with Mamdani aggregation and centroid defuzzification:
 
-$$
+```math
 S_u=\frac{\int_0^1 y\,\mu_{\text{agg,u}}(y)\,dy}{\int_0^1 \mu_{\text{agg,u}}(y)\,dy}
-$$
+```
 
 and the decision is:
 
-$$
+```math
 \hat{y}_u=\mathbb{1}[S_u\ge \theta_u], \quad \theta_u=0.79
-$$
+```
 
 ## Inference and Defuzzification in This Practice
 The final project implementation uses Mamdani fuzzy inference with explicit centroid defuzzification over an output confidence universe in $[0,1]$.
@@ -292,15 +292,15 @@ Therefore, defuzzification in this implementation is the centroid-based mapping 
 ### Temporal defuzzification at timeline level
 A second crisping stage is applied after window-level inference:
 
-$$
+```math
 \text{vote_ratio}(t)=\frac{\text{positive windows covering } t}{\text{total windows covering } t}
-$$
+```
 
 Then:
 
-$$
+```math
 \hat{y}(t)=\mathbb{1}[\text{vote_ratio}(t)\ge \tau]
-$$
+```
 
 This resolves overlap conflicts and converts multiple window outputs into a sample-wise final decision.
 
@@ -377,9 +377,18 @@ Trade-off observed:
 ## Visual Outputs
 The following plots were generated and can be included in the final PDF:
 
-- `stopping_megagraph.png`
-- `overtaking_megagraph.png`
-- `u_turnings_megagraph.png`
+- `images/stopping_megagraph.png`
+- `images/overtaking_megagraph.png`
+- `images/u_turnings_megagraph.png`
+
+### Stopping predictions vs marker flag across drivers
+<img src="images/stopping_megagraph.png" alt="Stopping megagraph" width="900" />
+
+### Overtaking predictions vs marker flag across drivers
+<img src="images/overtaking_megagraph.png" alt="Overtaking megagraph" width="900" />
+
+### U-Turnings predictions vs marker flag across drivers
+<img src="images/u_turnings_megagraph.png" alt="U-Turnings megagraph" width="900" />
 
 ## Reproducibility
 Commands used to regenerate the final artifacts:
