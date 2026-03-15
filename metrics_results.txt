@@ -1,0 +1,20 @@
+Evaluating Stopping...
+Evaluating Overtaking...
+Evaluating U-Turnings...
+
+================================================================================
+FINAL EVALUATION METRICS
+================================================================================
+  Maneuver                         Config Accuracy TPR/Sens Specificity    FPR
+  Stopping      Base (1.0s, overlap=0.75)   0.6879   0.5552      0.7366 0.2634
+  Stopping   No Overlap (1.0s, overlap=0)   0.7248   0.4182      0.8368 0.1632
+  Stopping Small Win (0.5s, overlap=0.75)   0.7024   0.4659      0.7889 0.2111
+  Stopping Large Win (1.5s, overlap=0.75)   0.6921   0.6257      0.7167 0.2833
+Overtaking      Base (1.0s, overlap=0.75)   0.6055   0.8422      0.4315 0.5685
+Overtaking   No Overlap (1.0s, overlap=0)   0.6055   0.8422      0.4315 0.5685
+Overtaking Small Win (0.5s, overlap=0.75)   0.6053   0.8308      0.4395 0.5605
+Overtaking Large Win (1.5s, overlap=0.75)   0.6152   0.8694      0.4272 0.5728
+U-Turnings      Base (1.0s, overlap=0.75)   0.7572   0.6407      0.8602 0.1398
+U-Turnings   No Overlap (1.0s, overlap=0)   0.7542   0.5928      0.8882 0.1118
+U-Turnings Small Win (0.5s, overlap=0.75)   0.7469   0.6042      0.8671 0.1329
+U-Turnings Large Win (1.5s, overlap=0.75)   0.7682   0.6812      0.8506 0.1494

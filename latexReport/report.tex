@@ -1,0 +1,434 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{float}
+\usepackage{longtable}
+\usepackage{caption}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{setspace}
+
+\setlength{\parskip}{6pt}
+\setlength{\parindent}{0pt}
+\onehalfspacing
+
+\title{AAIA Practice 1 - Work Report\\Detailed Fuzzy Inference and Defuzzification}
+\author{Alejandro Iabin Arteaga Hernandez\\Universidad Carlos III de Madrid\\\texttt{100569025@alumnos.uc3m.es}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Implemented Work and Pipeline}
+The implemented system detects three maneuvers from simulator telemetry sampled at 20 Hz:
+\begin{itemize}
+    \item Stopping
+    \item Overtaking
+    \item U-Turnings
+\end{itemize}
+
+The final solution follows the execution chain below:
+\begin{enumerate}
+    \item load telemetry file,
+    \item sort by elapsed time,
+    \item build sliding temporal windows,
+    \item extract window-level features,
+    \item compute fuzzy memberships,
+    \item perform rule aggregation and defuzzification,
+    \item convert fuzzy output to maneuver decision,
+    \item aggregate window decisions to timeline,
+    \item compare predictions with \texttt{Maneuver marker flag}.
+\end{enumerate}
+
+Main implementation files:
+\begin{itemize}
+    \item \texttt{stopping.py}: orchestration, windowing, voting, plotting, global configuration.
+    \item \texttt{fuzzy\_rules.py}: feature extraction, membership functions, fuzzy antecedents and scoring.
+\end{itemize}
+
+Generated outputs:
+\begin{itemize}
+    \item \texttt{stopping\_megagraph.png}
+    \item \texttt{overtaking\_megagraph.png}
+    \item \texttt{u\_turnings\_megagraph.png}
+    \item \texttt{metrics\_results.txt}
+\end{itemize}
+
+\section{Data Preparation and Temporal Segmentation}
+Data source structure used in the workspace:
+\begin{itemize}
+    \item \texttt{data/Driver1} to \texttt{data/Driver5}
+    \item One Excel file per maneuver and driver
+\end{itemize}
+
+Relevant files:
+\begin{itemize}
+    \item \texttt{STISIMData\_Stopping.xlsx}
+    \item \texttt{STISIMData\_Overtaking.xlsx}
+    \item \texttt{STISIMData\_U-Turnings.xlsx}
+\end{itemize}
+
+Main columns used by the final system:
+\begin{itemize}
+    \item \texttt{Elapsed time}
+    \item \texttt{speed}
+    \item \texttt{Brake pedal}
+    \item \texttt{Gas pedal}
+    \item \texttt{Steering wheel angle}
+    \item \texttt{Maneuver marker flag}
+\end{itemize}
+
+Preprocessing and segmentation steps applied:
+\begin{enumerate}
+    \item Read each Excel file into a data frame.
+    \item Sort all rows by \texttt{Elapsed time}.
+    \item Generate fixed-length windows in seconds.
+    \item Discard windows with less than \texttt{min\_samples}.
+    \item Keep overlap configurable through
+    \[
+    \text{step\_seconds} = \text{window\_seconds} \cdot (1 - \text{overlap\_ratio}).
+    \]
+\end{enumerate}
+
+\section{Feature Engineering Per Window}
+For each temporal window, the system computes:
+\begin{itemize}
+    \item mean acceleration: \texttt{mean\_acc},
+    \item initial and final speed: \texttt{start\_speed}, \texttt{end\_speed},
+    \item speed dynamics: \texttt{speed\_drop}, \texttt{speed\_rise},
+    \item mean speed: \texttt{mean\_speed},
+    \item braking behavior: \texttt{mean\_brake}, \texttt{brake\_rise},
+    \item throttle behavior: \texttt{mean\_gas},
+    \item steering behavior: \texttt{mean\_steering}, \texttt{end\_steering}, \texttt{max\_steering},
+    \item angular magnitude: \texttt{mean\_abs\_steering},
+    \item steering excursion: \texttt{steering\_range}.
+\end{itemize}
+
+These features convert raw signals into interpretable linguistic evidence for fuzzy inference.
+
+\section{Detailed Fuzzy System Design}
+\subsection{Membership functions}
+The implementation uses explicit membership mappings to convert crisp feature values into degrees in $[0,1]$.
+
+\textbf{1) Positive saturation membership}
+\[
+\mu_{+}(x; t)=
+\begin{cases}
+0 & x \le 0\\
+\min\left(\frac{x}{t},1\right) & x>0
+\end{cases}
+\]
+Used for evidence that should increase with larger positive values (for example acceleration, speed rise, brake intensity).
+
+\textbf{2) Negative saturation membership}
+\[
+\mu_{-}(x; t)=
+\begin{cases}
+0 & x \ge 0\\
+\min\left(\frac{|x|}{t},1\right) & x<0
+\end{cases}
+\]
+Used for deceleration evidence (negative acceleration).
+
+\textbf{3) Linear-below membership}
+\[
+\mu_{\text{below}}(x; m)=\max\left(0,\min\left(\frac{m-x}{m},1\right)\right)
+\]
+Used to represent linguistic concepts such as \emph{low speed} or \emph{low gas}.
+
+\textbf{4) Mid-range triangular membership}
+Given interval $[l,h]$, center $c=(l+h)/2$ and half-width $w=(h-l)/2$:
+\[
+\mu_{\text{mid}}(x;l,h)=\max\left(0, 1-\frac{|x-c|}{w}\right)
+\]
+Used for values expected to be moderate (for example steering activity in overtaking).
+
+\subsection{Rule base: Stopping}
+Stopping combines positive evidence and one penalty:
+\begin{itemize}
+    \item decelerating,
+    \item reaches near zero speed,
+    \item high brake,
+    \item brake rise,
+    \item intermediate transition,
+    \item low gas,
+    \item penalty if the window already starts near zero speed.
+\end{itemize}
+
+Detailed interpretation of stopping antecedents:
+\begin{itemize}
+    \item \textbf{Decelerating} captures whether vehicle kinetics are consistent with a braking phase and not with cruising.
+    \item \textbf{Reaches near zero speed} captures the temporal trend of a complete stop: start with nonzero speed and approach near-zero speed at the end of the window.
+    \item \textbf{High brake} captures sustained brake engagement; this is one of the most discriminative cues in this maneuver.
+    \item \textbf{Brake rise} captures the transition from little braking to strong braking, useful for detecting stopping onset.
+    \item \textbf{Intermediate transition} captures realistic stopping behavior where the vehicle passes through intermediate speeds while decelerating.
+    \item \textbf{Low gas} rejects windows where throttle remains high, reducing confusion with overtaking-like acceleration phases.
+    \item \textbf{Start-near-zero penalty} avoids false positives on already-stopped windows that should not be interpreted as active stopping events.
+\end{itemize}
+
+The stopping fuzzy rule base (expressed linguistically) is:
+\begin{itemize}
+    \item \textbf{R1:} IF deceleration is high THEN stopping evidence is high.
+    \item \textbf{R2:} IF speed starts nonzero AND ends near zero THEN stopping evidence is high.
+    \item \textbf{R3:} IF mean brake is high THEN stopping evidence is high.
+    \item \textbf{R4:} IF brake increase is high THEN stopping evidence is medium-high.
+    \item \textbf{R5:} IF mean speed is intermediate AND deceleration is present AND brake rise is present THEN stopping evidence is medium.
+    \item \textbf{R6:} IF gas is low THEN stopping evidence is medium.
+    \item \textbf{R7 (penalty):} IF start speed is already near zero THEN stopping evidence must be reduced.
+\end{itemize}
+
+In the final implementation, each rule contributes an activation level and a consequent label (low, medium, or high confidence), then Mamdani max-min aggregation is applied over the output universe.
+
+Let $\alpha_r$ be the firing strength of rule $r$ and $\mu_{C_r}(y)$ the consequent fuzzy set for confidence variable $y\in[0,1]$. The implied output of each rule is:
+\[
+\mu_r^{\text{out}}(y)=\min\left(\alpha_r,\mu_{C_r}(y)\right).
+\]
+Then all rules are aggregated by:
+\[
+\mu_{\text{agg}}(y)=\max_r\mu_r^{\text{out}}(y).
+\]
+The crisp stopping confidence is obtained by centroid defuzzification:
+\[
+S_{\text{stop}}=\frac{\int_0^1 y\,\mu_{\text{agg}}(y)\,dy}{\int_0^1 \mu_{\text{agg}}(y)\,dy}.
+\]
+The final decision is:
+\[
+\hat{y}_{\text{stop}}=\mathbb{1}[S_{\text{stop}}\ge \theta_{\text{stop}}], \quad \theta_{\text{stop}}=0.70.
+\]
+
+\subsection{Rule base: Overtaking}
+Overtaking uses these antecedents:
+\begin{itemize}
+    \item acceleration evidence,
+    \item speed rise,
+    \item sufficiently high mean speed,
+    \item high gas,
+    \item low brake,
+    \item steering activity in a compatible range.
+\end{itemize}
+
+Detailed interpretation of overtaking antecedents:
+\begin{itemize}
+    \item \textbf{Acceleration evidence} captures active engine demand and positive longitudinal dynamics.
+    \item \textbf{Speed rise} captures net progression over the window, filtering out short acceleration spikes with no effective gain.
+    \item \textbf{High mean speed} enforces contextual plausibility: overtaking is less likely at very low speeds.
+    \item \textbf{High gas} strengthens confidence that the driver is intentionally increasing propulsion.
+    \item \textbf{Low brake} rejects contradictory control patterns where braking dominates.
+    \item \textbf{Steering activity in a compatible range} models that overtaking generally involves non-trivial lateral adjustment, but not the extreme steering profile of a U-turn.
+\end{itemize}
+
+The overtaking fuzzy rule base is:
+\begin{itemize}
+    \item \textbf{R1:} IF acceleration is high THEN overtaking evidence is high.
+    \item \textbf{R2:} IF speed rise is high THEN overtaking evidence is high.
+    \item \textbf{R3:} IF mean speed is high THEN overtaking evidence is medium.
+    \item \textbf{R4:} IF gas is high THEN overtaking evidence is medium-high.
+    \item \textbf{R5:} IF brake is low THEN overtaking evidence is medium.
+    \item \textbf{R6:} IF steering activity is in the overtaking-compatible range THEN overtaking evidence is medium.
+    \item \textbf{R7 (penalty):} IF brake is high THEN overtaking evidence must decrease (low-confidence consequent).
+\end{itemize}
+
+Because overtaking can be confused with other transient behaviors (for example short acceleration bursts), the final system uses Mamdani max-min aggregation and centroid defuzzification instead of direct additive scoring. This reduces linear over-saturation and emphasizes coherent multi-rule support.
+
+Steering activity is modeled as a weighted combination:
+\[
+\text{steering\_activity}=0.6\cdot \text{mean\_abs\_steering}+0.4\cdot \text{steering\_range}.
+\]
+
+Overtaking confidence is computed with the same Mamdani + centroid framework:
+\[
+S_{\text{over}}=\frac{\int_0^1 y\,\mu_{\text{agg,over}}(y)\,dy}{\int_0^1 \mu_{\text{agg,over}}(y)\,dy}
+\]
+with binary decision:
+\[
+\hat{y}_{\text{over}}=\mathbb{1}[S_{\text{over}}\ge \theta_{\text{over}}], \quad \theta_{\text{over}}=0.67.
+\]
+
+\subsection{Rule base: U-Turnings}
+U-turning evidence is dominated by steering geometry:
+\begin{itemize}
+    \item high mean absolute steering,
+    \item high steering range.
+\end{itemize}
+
+Detailed interpretation of U-turning antecedents:
+\begin{itemize}
+    \item \textbf{High mean absolute steering} captures sustained steering commitment over the full window.
+    \item \textbf{High steering range} captures large angular sweep, which is characteristic of U-turn execution.
+\end{itemize}
+
+The U-turning fuzzy rule base is:
+\begin{itemize}
+    \item \textbf{R1:} IF mean absolute steering is high THEN U-turn evidence is high.
+    \item \textbf{R2:} IF steering range is high THEN U-turn evidence is high.
+    \item \textbf{R3 (implicit reinforcement):} IF both antecedents are high in the same window THEN combined weighted score exceeds threshold with high confidence.
+\end{itemize}
+
+This subsystem is intentionally compact and interpretable: it favors transparent geometric criteria over a large set of weaker secondary cues.
+
+U-turning confidence is obtained with Mamdani aggregation and centroid defuzzification:
+\[
+S_{u}=\frac{\int_0^1 y\,\mu_{\text{agg,u}}(y)\,dy}{\int_0^1 \mu_{\text{agg,u}}(y)\,dy}
+\]
+and the decision is:
+\[
+\hat{y}_{u}=\mathbb{1}[S_{u}\ge \theta_{u}], \quad \theta_u=0.79.
+\]
+
+\section{Inference and Defuzzification in This Practice}
+The final project implementation uses Mamdani fuzzy inference with explicit centroid defuzzification over an output confidence universe in $[0,1]$.
+
+\subsection{Fuzzification}
+Each crisp feature extracted from a window is converted to one or more membership degrees. Example:
+if a window has moderate positive acceleration, then $\mu_{\text{accelerating}}$ may be around 0.5 while other memberships have different values.
+
+\subsection{Rule evaluation and aggregation}
+Each rule computes a firing strength from antecedent memberships and rule weights. Then:
+\begin{itemize}
+    \item implication uses min between firing strength and consequent set,
+    \item aggregation uses max across all implied consequents.
+\end{itemize}
+Output consequents are represented by low/medium/high fuzzy sets (trapezoidal-triangular-trapezoidal).
+
+\subsection{Defuzzification}
+Defuzzification is performed through the centroid of the aggregated output membership:
+\begin{itemize}
+    \item compute aggregated output fuzzy set on the confidence universe,
+    \item compute centroid to obtain scalar confidence $S\in[0,1]$,
+    \item apply a threshold to obtain a binary decision.
+\end{itemize}
+
+Therefore, defuzzification in this implementation is the centroid-based mapping of aggregated output fuzzy sets into a crisp maneuver confidence score.
+
+\subsection{Temporal defuzzification at timeline level}
+A second crisping stage is applied after window-level inference:
+\[
+\text{vote\_ratio}(t)=\frac{\text{positive windows covering } t}{\text{total windows covering } t}
+\]
+Then:
+\[
+\hat{y}(t)=\mathbb{1}[\text{vote\_ratio}(t)\ge \tau].
+\]
+This resolves overlap conflicts and converts multiple window outputs into a sample-wise final decision.
+
+\section{Windowing Strategy and Overlap Analysis}
+Default configuration:
+\begin{itemize}
+    \item Window length: 1.0 s
+    \item Overlap ratio: 0.75 (step = 0.25 s)
+\end{itemize}
+
+Additional configurations used for mandatory analysis:
+\begin{itemize}
+    \item Non-overlapping windows: overlap ratio 0.0
+    \item Smaller windows: 0.5 s, overlap 0.75
+    \item Larger windows: 1.5 s, overlap 0.75
+\end{itemize}
+
+\section{Experimental Protocol and Metrics}
+Evaluation is computed against \texttt{Maneuver marker flag} with:
+\begin{itemize}
+    \item Accuracy
+    \item Sensitivity / TPR
+    \item Specificity
+    \item FPR
+\end{itemize}
+
+The script \texttt{eval\_metrics.py} was executed and the output was saved to \texttt{metrics\_results.txt}.
+
+\section{Quantitative Results (Latest Saved Run)}
+\begin{table}[H]
+\centering
+\caption{Average metrics across drivers for each maneuver and configuration (from \texttt{metrics\_results.txt})}
+\small
+\begin{tabular}{p{2.2cm} p{4.2cm} c c c c}
+\toprule
+Maneuver & Configuration & Accuracy & TPR & Specificity & FPR \\
+\midrule
+Stopping & 1.0s, overlap 0.75 & 0.6879 & 0.5552 & 0.7366 & 0.2634 \\
+Stopping & 1.0s, overlap 0.0  & 0.7248 & 0.4182 & 0.8368 & 0.1632 \\
+Stopping & 0.5s, overlap 0.75 & 0.7024 & 0.4659 & 0.7889 & 0.2111 \\
+Stopping & 1.5s, overlap 0.75 & 0.6921 & 0.6257 & 0.7167 & 0.2833 \\
+\midrule
+Overtaking & 1.0s, overlap 0.75 & 0.6055 & 0.8422 & 0.4315 & 0.5685 \\
+Overtaking & 1.0s, overlap 0.0  & 0.6055 & 0.8422 & 0.4315 & 0.5685 \\
+Overtaking & 0.5s, overlap 0.75 & 0.6053 & 0.8308 & 0.4395 & 0.5605 \\
+Overtaking & 1.5s, overlap 0.75 & 0.6152 & 0.8694 & 0.4272 & 0.5728 \\
+\midrule
+U-Turnings & 1.0s, overlap 0.75 & 0.7572 & 0.6407 & 0.8602 & 0.1398 \\
+U-Turnings & 1.0s, overlap 0.0  & 0.7542 & 0.5928 & 0.8882 & 0.1118 \\
+U-Turnings & 0.5s, overlap 0.75 & 0.7469 & 0.6042 & 0.8671 & 0.1329 \\
+U-Turnings & 1.5s, overlap 0.75 & 0.7682 & 0.6812 & 0.8506 & 0.1494 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Interpretation Focused on Fuzzy Behavior}
+\subsection{Stopping}
+Stopping is the most stable subsystem because its antecedents are highly coherent in real driving dynamics: deceleration, brake pressure, and low gas often appear together. This alignment strengthens fuzzy evidence and improves discrimination.
+
+\subsection{Overtaking}
+Overtaking is intrinsically harder because partial patterns appear in non-overtaking situations (brief acceleration, steering corrections, transient gas peaks). For this reason, overtaking required iterative retuning, explicit high-brake penalty logic, and centroid-based defuzzification to reduce over-saturation from simple additive accumulation.
+
+\subsection{U-Turnings}
+U-turning is mainly separable through steering intensity and steering excursion. Its fuzzy behavior is interpretable and robust; however, adding speed-shape evidence could reduce occasional false positives.
+
+\subsection{Overlapping vs non-overlapping windows}
+For Stopping and U-Turnings, overlap improves sensitivity and global accuracy. Non-overlapping windows increase specificity but miss more true maneuver samples.
+
+For Overtaking, overlap comparison has almost no change because the active temporal logic already uses non-overlapping sequencing to enforce start-event behavior.
+
+\subsection{Effect of window size}
+Using 1.5 s windows improves TPR in all three maneuvers, indicating that larger temporal context helps fuzzy evidence accumulate.
+
+Trade-off observed:
+\begin{itemize}
+    \item larger windows: better sensitivity, sometimes lower specificity
+    \item smaller windows: higher local specificity, lower sensitivity
+\end{itemize}
+
+\subsection{Possible improvements}
+\begin{itemize}
+    \item Overtaking: add anti-false-positive fuzzy antecedents based on post-peak stabilization and return-to-lane pattern.
+    \item U-Turnings: include speed-reduction and braking evidence jointly with steering to improve precision.
+    \item Add explicit handling of gear transition rule (temporary gear=0 between two gears).
+    \item Tune thresholds per driver or use validation split for robust global parameters.
+    \item Tune output fuzzy set shapes (low/medium/high supports) per maneuver to improve calibration of centroid scores.
+\end{itemize}
+
+\section{Visual Outputs}
+The following plots were generated and can be included in the final PDF:
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{../stopping_megagraph.png}
+\caption{Stopping predictions vs marker flag across drivers}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{../overtaking_megagraph.png}
+\caption{Overtaking predictions vs marker flag across drivers}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{../u_turnings_megagraph.png}
+\caption{U-Turnings predictions vs marker flag across drivers}
+\end{figure}
+
+\section{Reproducibility}
+Commands used to regenerate the final artifacts:
+\begin{itemize}
+    \item Run full maneuver plots: \texttt{./.venv/bin/python stopping.py}
+    \item Run evaluation metrics: \texttt{./.venv/bin/python eval\_metrics.py > metrics\_results.txt}
+\end{itemize}
+
+\end{document}

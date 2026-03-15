@@ -1,0 +1,25 @@
+.venv/
+.vscode/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+
+# LaTeX build artifacts (keep .tex and .pdf)
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.nav
+*.snm
+*.synctex.gz
+*.bbl
+*.blg
+*.bcf
+*.run.xml
